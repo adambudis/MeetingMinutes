@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="MeetingMinutes.Api/MeetingMinutes.Api.csproj" />
+  <Project Path="MeetingMinutes.Client/MeetingMinutes.Client.csproj" />
+</Solution>

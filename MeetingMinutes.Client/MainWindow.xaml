@@ -1,0 +1,146 @@
+<Window x:Class="MeetingMinutes.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:MeetingMinutes"
+        xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+        mc:Ignorable="d"
+        Title="Meeting Minutes"
+        Height="600" Width="900"
+        TextElement.Foreground="{DynamicResource MaterialDesignBody}"
+        TextElement.FontWeight="Regular"
+        TextElement.FontSize="13"
+        TextOptions.TextFormattingMode="Ideal"
+        TextOptions.TextRenderingMode="Auto"
+        Background="{DynamicResource MaterialDesignPaper}"
+        FontFamily="{DynamicResource MaterialDesignFont}"
+        Style="{StaticResource MaterialDesignWindow}">
+
+    <materialDesign:Card Margin="8" Padding="8"
+                         materialDesign:ElevationAssist.Elevation="Dp4">
+        <Grid>
+            <Grid.Resources>
+                <Style TargetType="TextBox" BasedOn="{StaticResource MaterialDesignOutlinedTextBox}"/>
+            </Grid.Resources>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- LEFT: VU meter + timer -->
+            <Grid Grid.Row="0" Grid.Column="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <ProgressBar x:Name="VolumeBar"
+                             Grid.Column="0"
+                             Height="12"
+                             VerticalAlignment="Center"
+                             Minimum="0" Maximum="1"/>
+                <TextBlock x:Name="TimerLabel"
+                           Grid.Column="2"
+                           Text="00:00"
+                           VerticalAlignment="Center"
+                           FontFamily="Consolas"
+                           FontSize="13"/>
+            </Grid>
+
+            <!-- LEFT: Transcript -->
+            <TextBox x:Name="TranscriptBox"
+                     Grid.Row="1" Grid.Column="0"
+                     Margin="0,8,0,8"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto"
+                     AcceptsReturn="True"
+                     VerticalContentAlignment="Top"/>
+
+            <!-- LEFT: Buttons -->
+            <Grid Grid.Row="2" Grid.Column="0">
+                <ComboBox x:Name="LanguageSelector"
+                          HorizontalAlignment="Left"
+                          VerticalAlignment="Center"
+                          ToolTip="STT backend"
+                          SelectedIndex="0">
+                    <ComboBoxItem Content="cs"/>
+                    <ComboBoxItem Content="en"/>
+                </ComboBox>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Button x:Name="StartButton"
+                            Margin="0,0,8,0"
+                            Click="StartButton_Click"
+                            ToolTip="Spustit nahrávání"
+                            Style="{StaticResource MaterialDesignIconButton}">
+                        <materialDesign:PackIcon Kind="Microphone"/>
+                    </Button>
+                    <Button x:Name="PauseButton"
+                            Margin="0,0,8,0"
+                            Click="PauseButton_Click"
+                            IsEnabled="False"
+                            ToolTip="Pozastavit nahrávání"
+                            Style="{StaticResource MaterialDesignIconButton}">
+                        <materialDesign:PackIcon Kind="Pause"/>
+                    </Button>
+                    <Button x:Name="StopButton"
+                            Click="StopButton_Click"
+                            IsEnabled="False"
+                            ToolTip="Zastavit nahrávání"
+                            Style="{StaticResource MaterialDesignIconButton}">
+                        <materialDesign:PackIcon Kind="Stop"/>
+                    </Button>
+                </StackPanel>
+                <Button x:Name="ImportButton"
+                        HorizontalAlignment="Right"
+                        Click="ImportButton_Click"
+                        ToolTip="Importovat soubor"
+                        Style="{StaticResource MaterialDesignIconButton}">
+                    <materialDesign:PackIcon Kind="FileImport"/>
+                </Button>
+            </Grid>
+
+            <!-- DIVIDER -->
+            <Rectangle Grid.Row="0" Grid.Column="1" Grid.RowSpan="3"
+                       Width="1"
+                       HorizontalAlignment="Center"
+                       Fill="{DynamicResource MaterialDesignDivider}"/>
+
+            <!-- RIGHT: Summary -->
+            <TextBox x:Name="SummaryBox"
+                     Grid.Row="0" Grid.Column="2" Grid.RowSpan="2"
+                     Margin="0,0,0,8"
+                     IsReadOnly="True"
+                     TextWrapping="Wrap"
+                     VerticalScrollBarVisibility="Auto"
+                     AcceptsReturn="True"
+                     VerticalContentAlignment="Top"/>
+
+            <!-- RIGHT: Prompt input + button -->
+            <Grid Grid.Row="2" Grid.Column="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="PromptBox"
+                         Grid.Column="0"
+                         AcceptsReturn="False"
+                         VerticalContentAlignment="Center"
+                         materialDesign:HintAssist.Hint="Vlastní prompt..."/>
+                <Button x:Name="SummarizeButton"
+                        Grid.Column="2"
+                        Content="SHRNOUT"
+                        Click="SummarizeButton_Click"
+                        IsEnabled="False"/>
+            </Grid>
+        </Grid>
+    </materialDesign:Card>
+</Window>

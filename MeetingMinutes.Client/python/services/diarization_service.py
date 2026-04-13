@@ -1,0 +1,48 @@
+import os
+import sys
+from pathlib import Path
+
+import torch
+import soundfile as sf
+from pyannote.audio import Pipeline
+
+from utils import progress, get_device
+
+
+def _models_root() -> Path:
+    return Path(__file__).parent.parent / "Models"
+
+
+_models_dir = _models_root() / "pyannote"
+_models_dir.mkdir(parents=True, exist_ok=True)
+os.environ.setdefault("HF_HOME", str(_models_dir))
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
+
+class DiarizationService:
+
+    def get_speaker_turns(self, audio_path: str) -> list[tuple[float, float, str]]:
+        device = torch.device(get_device())
+        progress("Načítám pyannote diarizační model...")
+        pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1")
+        pipeline.to(device)
+
+        progress("Diarizuji audio...")
+        waveform, sr = sf.read(audio_path, dtype="float32", always_2d=True)
+        audio_tensor = {"waveform": torch.tensor(waveform.T), "sample_rate": sr}
+        result = pipeline(audio_tensor)
+        annotation = result.speaker_diarization if hasattr(result, "speaker_diarization") else result
+
+        raw_turns = [
+            (turn.start, turn.end, speaker)
+            for turn, _, speaker in annotation.itertracks(yield_label=True)
+        ]
+
+        if not raw_turns:
+            return []
+
+        all_speakers = sorted({spk for _, _, spk in raw_turns})
+        speaker_map  = {spk: f"SPEAKER_{i:02d}" for i, spk in enumerate(all_speakers)}
+
+        progress(f"Pyannote detekoval {len(all_speakers)} mluvčích v {len(raw_turns)} úsecích.")
+        return [(s, e, speaker_map[spk]) for s, e, spk in raw_turns]
