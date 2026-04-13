@@ -209,15 +209,13 @@ namespace MeetingMinutes
         private static (string pythonExe, string scriptPath) FindPythonAndScript()
         {
             var dir = AppDomain.CurrentDomain.BaseDirectory;
-            while (dir != null)
-            {
-                var python = Path.Combine(dir, "python", ".venv", "Scripts", "python.exe");
-                var script = Path.Combine(dir, "python", "app.py");
-                if (File.Exists(python) && File.Exists(script))
-                    return (python, script);
-                dir = Path.GetDirectoryName(dir);
-            }
-            throw new Exception("Nelze najít python.exe nebo app.py (očekáváno ve složce python/.venv/ vedle exe).");
+            var python = Path.Combine(dir, "python", ".venv", "Scripts", "python.exe");
+            var script = Path.Combine(dir, "python", "app.py");
+
+            if (!File.Exists(python) || !File.Exists(script))
+                throw new Exception("Nelze najít python.exe nebo app.py (očekáváno ve složce python/.venv/ vedle exe).");
+
+            return (python, script);
         }
 
         private async Task RunTranscriptionAsync(string audioPath)

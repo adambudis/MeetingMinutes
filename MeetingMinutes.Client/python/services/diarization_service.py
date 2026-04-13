@@ -15,8 +15,10 @@ def _models_root() -> Path:
 
 _models_dir = _models_root() / "pyannote"
 _models_dir.mkdir(parents=True, exist_ok=True)
-os.environ.setdefault("HF_HOME", str(_models_dir))
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ["HF_HOME"] = str(_models_dir)
+os.environ["HF_HUB_OFFLINE"] = "1"
+
+pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1")
 
 
 class DiarizationService:
@@ -24,7 +26,6 @@ class DiarizationService:
     def get_speaker_turns(self, audio_path: str) -> list[tuple[float, float, str]]:
         device = torch.device(get_device())
         progress("Načítám pyannote diarizační model...")
-        pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1")
         pipeline.to(device)
 
         progress("Diarizuji audio...")
@@ -37,7 +38,7 @@ class DiarizationService:
             (turn.start, turn.end, speaker)
             for turn, _, speaker in annotation.itertracks(yield_label=True)
         ]
-
+        
         if not raw_turns:
             return []
 
