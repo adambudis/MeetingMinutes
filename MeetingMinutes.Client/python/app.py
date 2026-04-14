@@ -1,3 +1,14 @@
+import sys
+print("Python started", file=sys.stderr, flush=True)
+
+import os
+from pathlib import Path
+
+_pyannote_models = Path(__file__).parent / "Models" / "pyannote"
+_pyannote_models.mkdir(parents=True, exist_ok=True)
+os.environ["HF_HOME"] = str(_pyannote_models)
+os.environ["HF_HUB_OFFLINE"] = "1"
+
 import argparse
 import json
 import sys

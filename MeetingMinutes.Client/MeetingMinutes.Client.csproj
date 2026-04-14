@@ -28,4 +28,10 @@
     <PackageReference Include="OllamaSharp" Version="5.4.23" />
   </ItemGroup>
 
+  <ItemGroup>
+  <None Include="python\**\*.*">
+    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+  </None>
+</ItemGroup>
+
 </Project>

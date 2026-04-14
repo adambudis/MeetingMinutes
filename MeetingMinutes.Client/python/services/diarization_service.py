@@ -1,32 +1,26 @@
-import os
-import sys
-from pathlib import Path
-
 import torch
 import soundfile as sf
 from pyannote.audio import Pipeline
 
 from utils import progress, get_device
 
-
-def _models_root() -> Path:
-    return Path(__file__).parent.parent / "Models"
+_pipeline: Pipeline | None = None
 
 
-_models_dir = _models_root() / "pyannote"
-_models_dir.mkdir(parents=True, exist_ok=True)
-os.environ["HF_HOME"] = str(_models_dir)
-os.environ["HF_HUB_OFFLINE"] = "1"
-
-pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1")
+def _get_pipeline() -> Pipeline:
+    global _pipeline
+    if _pipeline is None:
+        progress("Načítám pyannote diarizační model...")
+        _pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1")
+        device = torch.device(get_device())
+        _pipeline.to(device)
+    return _pipeline
 
 
 class DiarizationService:
 
     def get_speaker_turns(self, audio_path: str) -> list[tuple[float, float, str]]:
-        device = torch.device(get_device())
-        progress("Načítám pyannote diarizační model...")
-        pipeline.to(device)
+        pipeline = _get_pipeline()
 
         progress("Diarizuji audio...")
         waveform, sr = sf.read(audio_path, dtype="float32", always_2d=True)

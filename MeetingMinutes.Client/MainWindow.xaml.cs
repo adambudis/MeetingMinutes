@@ -160,7 +160,7 @@ namespace MeetingMinutes
             });
         }
 
-        private void ImportButton_Click(object sender, RoutedEventArgs e)
+        private async void ImportButton_Click(object sender, RoutedEventArgs e)
         {
             var dialog = new Microsoft.Win32.OpenFileDialog
             {
@@ -177,11 +177,12 @@ namespace MeetingMinutes
             ImportButton.IsEnabled = false;
             SummarizeButton.IsEnabled = false;
 
-            Task.Run(async () =>
+            var wavPath = filePath;
+            string? tempWav = null;
+
+            try
             {
-                var wavPath = filePath;
-                string? tempWav = null;
-                try
+                await Task.Run(() =>
                 {
                     if (!filePath.EndsWith(".wav", StringComparison.OrdinalIgnoreCase))
                     {
@@ -189,14 +190,20 @@ namespace MeetingMinutes
                         ConvertToWav(filePath, tempWav);
                         wavPath = tempWav;
                     }
-                    await RunTranscriptionAsync(wavPath);
-                }
-                finally
-                {
-                    if (tempWav != null && File.Exists(tempWav))
-                        File.Delete(tempWav);
-                }
-            });
+                });
+
+                await RunTranscriptionAsync(wavPath);
+            }
+            catch (Exception ex)
+            {
+                TranscriptBox.AppendText($"\n[Chyba: {ex.Message}]\n");
+                ImportButton.IsEnabled = true;
+            }
+            finally
+            {
+                if (tempWav != null && File.Exists(tempWav))
+                    File.Delete(tempWav);
+            }
         }
 
         private static void ConvertToWav(string inputPath, string outputPath)
@@ -208,19 +215,35 @@ namespace MeetingMinutes
 
         private static (string pythonExe, string scriptPath) FindPythonAndScript()
         {
-            var dir = AppDomain.CurrentDomain.BaseDirectory;
-            var python = Path.Combine(dir, "python", ".venv", "Scripts", "python.exe");
-            var script = Path.Combine(dir, "python", "app.py");
+            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
 
-            if (!File.Exists(python) || !File.Exists(script))
-                throw new Exception("Nelze najít python.exe nebo app.py (očekáváno ve složce python/.venv/ vedle exe).");
+#if DEBUG
+            // looking in bin\Debug\net10.0-windows\
+            var root = Path.GetFullPath(Path.Combine(baseDir, @"..\..\..\"));
+            var python = Path.Combine(root, "python", ".venv", "Scripts", "python.exe");
+            var script = Path.Combine(root, "python", "app.py");
 
-            return (python, script);
+            if (File.Exists(python) && File.Exists(script))
+                return (python, script);
+#endif
+
+            // for release/publishe looking in python\ folder must sit next to the .exe
+            var prodPython = Path.Combine(baseDir, "python", ".venv", "Scripts", "python.exe");
+            var prodScript = Path.Combine(baseDir, "python", "app.py");
+
+            if (File.Exists(prodPython) && File.Exists(prodScript))
+                return (prodPython, prodScript);
+
+            throw new Exception(
+                $"Nelze najít python.exe nebo app.py.\n" +
+                $"Hledáno v: {Path.Combine(baseDir, "python")}"
+            );
         }
 
         private async Task RunTranscriptionAsync(string audioPath)
         {
             var (pythonExe, scriptPath) = FindPythonAndScript();
+            Dispatcher.Invoke(() => TranscriptBox.AppendText($"Python: {pythonExe}\nScript: {scriptPath}\n"));
 
             var language = Dispatcher.Invoke(() =>
                 LanguageSelector.SelectedIndex == 1 ? "en" : "cs");
@@ -246,7 +269,7 @@ namespace MeetingMinutes
                     ?? throw new Exception("Nepodařilo se spustit Python.");
 
                 // Stream stderr live to TranscriptBox as progress updates
-                var stderrLines = new System.Text.StringBuilder();
+                var stderrLines = new StringBuilder();
                 process.ErrorDataReceived += (_, args) =>
                 {
                     if (args.Data == null) return;
@@ -261,8 +284,8 @@ namespace MeetingMinutes
 
                 var stdoutTask = process.StandardOutput.ReadToEndAsync();
                 await process.WaitForExitAsync();
-
                 var stdout = await stdoutTask;
+
                 var stderr = stderrLines.ToString();
 
                 if (process.ExitCode != 0)
