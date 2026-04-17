@@ -1,21 +1,19 @@
-# MeetingMinutes Client — Requirements
+# MeetingMinutes Client
 
-## Ollama
+## Návod k rozjetí na devu
 
-- Install: https://ollama.com/download
-- Must be running locally on port `11434` (default)
+### Požadavky
+- .NET 10 SDK
+- Python (3.x)
+- Ollama
 
+1. Stáhnout a nainstalovat Ollama: https://ollama.com/download
+- Musí běžet lokálně na portu `11434` (default)
 ```
 ollama pull gemma3:4b
 ```
 
-## Návod ke spuštění
-
-Na devu
-- .NET 10 SDK
-- Python (3.x)
-
-1. Nastavit venv a nainstalovat požadované balíčky:
+2. Nastavit venv a nainstalovat požadované python balíčky:
 ```
 cd MeetingMinutes.Client/python
 python -m venv .venv
@@ -23,9 +21,9 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-2. Stáhnout `canary-1b-v2.nemo` model na stránce `https://huggingface.co/nvidia/canary-1b-v2/tree/main` a umístit do složky `MeetingMinutes.Client\python\Models`.
+3. Stáhnout `canary-1b-v2.nemo` model na stránce `https://huggingface.co/nvidia/canary-1b-v2/tree/main` a umístit do složky `MeetingMinutes.Client\python\Models`.
 
-## Vytvoření exe
+## Návod k vytvoření exe
 
 1. V terminálu ve složce `MeetingMinutes.Client` spustit příkaz:
 ```
@@ -35,3 +33,5 @@ dotnet publish -c Release -r win-x64 --self-contained true
 2. Zkopírovat celou python/ složku vedle exe do publish složky: `bin/Release/net10.0-windows/win-x64/publish/`
 
 3. Nyní je aplikace spustitelná, `publish/` výslednou složku lze zabalit do zipu a poslat uživatelům
+
+4. Na cílových počítačích musí být nainstalovaný Ollama s modelem `gemma3:4b`
