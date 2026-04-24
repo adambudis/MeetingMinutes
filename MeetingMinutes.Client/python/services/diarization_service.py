@@ -14,7 +14,7 @@ def _get_pipeline() -> Pipeline:
     if _pipeline is None:
         progress("Načítám pyannote diarizační model...")
         token = os.environ.get("HF_TOKEN")
-        _pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", use_auth_token=token)
+        _pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1", token=token)
         device = torch.device(get_device())
         _pipeline.to(device)
     return _pipeline
