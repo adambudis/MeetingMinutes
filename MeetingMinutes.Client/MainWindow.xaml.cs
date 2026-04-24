@@ -1,9 +1,13 @@
+using MaterialDesignThemes.Wpf.Converters;
 using NAudio.Wave;
 using OllamaSharp;
 using OllamaSharp.Models;
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
+using System.Reflection.Metadata;
+using System.Runtime.Intrinsics.Arm;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -25,8 +29,9 @@ namespace MeetingMinutes
         };
 
         private string fullTranscript = string.Empty;
-        private const string OllamaModel = "gemma3:4b";
-        private readonly OllamaApiClient ollamaClient = new(new Uri("http://localhost:11434"));
+        private const string OllamaModel = "qwen2.5:14b";
+        private static readonly HttpClient _httpClient = new() { BaseAddress = new Uri("http://localhost:11434"), Timeout = Timeout.InfiniteTimeSpan };
+        private readonly OllamaApiClient ollamaClient = new(_httpClient);
 
         public MainWindow()
         {
@@ -37,7 +42,7 @@ namespace MeetingMinutes
                 TimerLabel.Text = $"{(int)e.TotalMinutes:D2}:{e.Seconds:D2}";
             };
         }
-
+        
         private void StartButton_Click(object sender, RoutedEventArgs e)
         {
             tempRecordingPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".wav");
@@ -52,7 +57,7 @@ namespace MeetingMinutes
 
             recorder.DataAvailable += Recorder_DataAvailable;
             recorder.RecordingStopped += Recorder_RecordingStopped;
-
+            
             try
             {
                 writer = new WaveFileWriter(tempRecordingPath, recorder.WaveFormat);
@@ -355,16 +360,39 @@ namespace MeetingMinutes
                 ? "Vytvoř shrnutí schůzky."
                 : PromptBox.Text;
 
-            const string systemPrompt =        
+            const string systemPrompt =
             @"Jsi asistent pro shrnutí přepisů schůzek.
-                Pravidla:
+
+                VÝSTUP MUSÍ MÍT TUTO STRUKTURU:
+
+                1) Témata:
+                - ...
+
+                2) Účastníci:
+                - ...
+
+                3) Konkrétní návrhy / opatření:
+                - ...
+
+                4) Rozhodnutí:
+                - ...
+
+                5) Úkoly:
+                - ...
+
+                PRAVIDLA:
                 - odpovídej pouze česky
                 - používej pouze informace z přepisu
                 - nic si nevymýšlej
-                - pokud informace chybí napiš 'není uvedeno'
+                - pokud informace chybí napiš ""není uvedeno""
                 - pokud v přepisu nejsou rozhodnutí nebo úkoly, napiš to výslovně
-                - nevytvářej nové osoby, role, úkoly ani závěry
-                - shrnutí musí být stručné a věcné";
+                - používej pouze jména, která jsou v přepisu
+                - NEUVÁDĚJ žádné obecné hodnocení (např. ""celkový dojem"")
+                - NEVYTVÁŘEJ nové osoby ani role
+                - NEZOBECŇUJ – používej formulace odpovídající textu (např. „uvádí“, „říká“, „navrhuje“)
+                - pokud si nejsi jistý, napiš ""není uvedeno""
+                - neuváděj informace, které nelze přímo dohledat v textu
+                - buď stručný a věcný";
 
             var userMessage = $"{structurePrompt}\n\nTranskript:\n{fullTranscript}";
              

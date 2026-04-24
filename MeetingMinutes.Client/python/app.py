@@ -7,7 +7,10 @@ from pathlib import Path
 _pyannote_models = Path(__file__).parent / "Models" / "pyannote"
 _pyannote_models.mkdir(parents=True, exist_ok=True)
 os.environ["HF_HOME"] = str(_pyannote_models)
-os.environ["HF_HUB_OFFLINE"] = "1"
+
+_pyannote_cached = (_pyannote_models / "hub" / "models--pyannote--speaker-diarization-3.1" / "snapshots").exists()
+if _pyannote_cached:
+    os.environ["HF_HUB_OFFLINE"] = "1"
 
 import argparse
 import json
