@@ -4,6 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:MeetingMinutes"
+        xmlns:vm="clr-namespace:MeetingMinutes.ViewModels"
         xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
         mc:Ignorable="d"
         Title="Meeting Minutes"
@@ -17,6 +18,7 @@
         FontFamily="{DynamicResource MaterialDesignFont}"
         Style="{StaticResource MaterialDesignWindow}">
 
+    <materialDesign:DialogHost Identifier="RootDialog">
     <materialDesign:Card Margin="8" Padding="8"
                          materialDesign:ElevationAssist.Elevation="Dp4">
         <Grid>
@@ -66,14 +68,14 @@
 
             <!-- LEFT: Buttons -->
             <Grid Grid.Row="2" Grid.Column="0">
-                <ComboBox x:Name="LanguageSelector"
-                          HorizontalAlignment="Left"
-                          VerticalAlignment="Center"
-                          ToolTip="STT backend"
-                          SelectedIndex="0">
-                    <ComboBoxItem Content="cs"/>
-                    <ComboBoxItem Content="en"/>
-                </ComboBox>
+                <Button x:Name="TranscriptionSettingsButton"
+                        HorizontalAlignment="Left"
+                        VerticalAlignment="Center"
+                        Click="TranscriptionSettingsButton_Click"
+                        ToolTip="Nastavení přepisu"
+                        Style="{StaticResource MaterialDesignIconButton}">
+                    <materialDesign:PackIcon Kind="Cog"/>
+                </Button>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                     <Button x:Name="StartButton"
                             Margin="0,0,8,0"
@@ -98,13 +100,22 @@
                         <materialDesign:PackIcon Kind="Stop"/>
                     </Button>
                 </StackPanel>
-                <Button x:Name="ImportButton"
-                        HorizontalAlignment="Right"
-                        Click="ImportButton_Click"
-                        ToolTip="Importovat soubor"
-                        Style="{StaticResource MaterialDesignIconButton}">
-                    <materialDesign:PackIcon Kind="FileImport"/>
-                </Button>
+                <StackPanel HorizontalAlignment="Right" VerticalAlignment="Center" Orientation="Horizontal">
+                    <Button x:Name="TranscribeButton"
+                            IsEnabled="False"
+                            Margin="0,0,4,0"
+                            Click="TranscribeButton_Click"
+                            ToolTip="Spustit přepis"
+                            Style="{StaticResource MaterialDesignIconButton}">
+                        <materialDesign:PackIcon Kind="PlayCircle"/>
+                    </Button>
+                    <Button x:Name="ImportButton"
+                            Click="ImportButton_Click"
+                            ToolTip="Importovat soubor"
+                            Style="{StaticResource MaterialDesignIconButton}">
+                        <materialDesign:PackIcon Kind="FileImport"/>
+                    </Button>
+                </StackPanel>
             </Grid>
 
             <!-- DIVIDER -->
@@ -113,34 +124,106 @@
                        HorizontalAlignment="Center"
                        Fill="{DynamicResource MaterialDesignDivider}"/>
 
-            <!-- RIGHT: Summary -->
-            <TextBox x:Name="SummaryBox"
-                     Grid.Row="0" Grid.Column="2" Grid.RowSpan="2"
-                     Margin="0,0,0,8"
-                     IsReadOnly="True"
-                     TextWrapping="Wrap"
-                     VerticalScrollBarVisibility="Auto"
-                     AcceptsReturn="True"
-                     VerticalContentAlignment="Top"/>
+            <!-- RIGHT: Chat panel -->
+            <Grid Grid.Row="0" Grid.Column="2" Grid.RowSpan="3">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-            <!-- RIGHT: Prompt input + button -->
-            <Grid Grid.Row="2" Grid.Column="2">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="8"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBox x:Name="PromptBox"
-                         Grid.Column="0"
-                         AcceptsReturn="False"
-                         VerticalContentAlignment="Center"
-                         materialDesign:HintAssist.Hint="Vlastní prompt..."/>
-                <Button x:Name="SummarizeButton"
-                        Grid.Column="2"
-                        Content="SHRNOUT"
-                        Click="SummarizeButton_Click"
-                        IsEnabled="False"/>
+                <!-- Bubble list -->
+                <ScrollViewer x:Name="ChatScrollViewer"
+                              Grid.Row="0"
+                              Padding="0,0,4,0"
+                              VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding ChatMessages}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:ChatMessage}">
+                                <Border Padding="10,8"
+                                        MaxWidth="380"
+                                        Margin="4,3">
+                                    <Border.Style>
+                                        <Style TargetType="Border">
+                                            <Setter Property="HorizontalAlignment" Value="Right"/>
+                                            <Setter Property="CornerRadius" Value="14,14,2,14"/>
+                                            <Setter Property="Background" Value="{DynamicResource PrimaryHueMidBrush}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsUser}" Value="False">
+                                                    <Setter Property="HorizontalAlignment" Value="Left"/>
+                                                    <Setter Property="CornerRadius" Value="14,14,14,2"/>
+                                                    <Setter Property="Background" Value="{DynamicResource MaterialDesignToolBarBackground}"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Border.Style>
+                                    <TextBox Text="{Binding Content}" TextWrapping="Wrap"
+                                             IsReadOnly="True">
+                                        <TextBox.Style>
+                                            <Style TargetType="TextBox">
+                                                <Setter Property="BorderThickness" Value="0"/>
+                                                <Setter Property="Background" Value="Transparent"/>
+                                                <Setter Property="Padding" Value="0"/>
+                                                <Setter Property="Foreground" Value="{DynamicResource PrimaryHueMidForegroundBrush}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsUser}" Value="False">
+                                                        <Setter Property="Foreground" Value="{DynamicResource MaterialDesignBody}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBox.Style>
+                                    </TextBox>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <!-- Input bar -->
+                <Border Grid.Row="1"
+                        Margin="0,8,0,0"
+                        Padding="8,4"
+                        CornerRadius="24"
+                        Background="{DynamicResource MaterialDesignToolBarBackground}">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox x:Name="PromptBox"
+                                 Grid.Column="0"
+                                 AcceptsReturn="False"
+                                 VerticalContentAlignment="Center"
+                                 KeyDown="PromptBox_KeyDown"
+                                 materialDesign:HintAssist.Hint="Napište zprávu..."/>
+                        <Button x:Name="SummarizeButton"
+                                Grid.Column="1"
+                                Click="SummarizeButton_Click"
+                                IsEnabled="False"
+                                ToolTip="Odeslat"
+                                Style="{StaticResource MaterialDesignIconButton}">
+                            <materialDesign:PackIcon Kind="Send"/>
+                        </Button>
+                        <Button x:Name="ClearChatButton"
+                                Grid.Column="2"
+                                Click="ClearChatButton_Click"
+                                IsEnabled="False"
+                                ToolTip="Vymazat konverzaci"
+                                Style="{StaticResource MaterialDesignIconButton}">
+                            <materialDesign:PackIcon Kind="Eraser"/>
+                        </Button>
+                        <Button x:Name="SettingsButton"
+                                Grid.Column="3"
+                                Click="SettingsButton_Click"
+                                ToolTip="Nastavení promptu"
+                                Style="{StaticResource MaterialDesignIconButton}">
+                            <materialDesign:PackIcon Kind="Cog"/>
+                        </Button>
+                    </Grid>
+                </Border>
             </Grid>
         </Grid>
     </materialDesign:Card>
+    </materialDesign:DialogHost>
 </Window>

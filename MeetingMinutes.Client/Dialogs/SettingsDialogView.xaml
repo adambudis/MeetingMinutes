@@ -1,0 +1,41 @@
+<UserControl x:Class="MeetingMinutes.Dialogs.SettingsDialogView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes">
+    <StackPanel Margin="24" Width="540">
+
+        <TextBlock Text="Nastavení"
+                   Style="{StaticResource MaterialDesignHeadline6TextBlock}"
+                   Margin="0,0,0,16"/>
+
+        <TextBox x:Name="SystemPromptBox"
+                 materialDesign:HintAssist.Hint="Systémový prompt"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 VerticalScrollBarVisibility="Auto"
+                 Height="260"
+                 VerticalContentAlignment="Top"
+                 Style="{StaticResource MaterialDesignOutlinedTextBox}"/>
+
+        <ComboBox x:Name="ModelComboBox"
+                  Margin="0,12,0,0"
+                  materialDesign:HintAssist.Hint="Model Ollama"
+                  Style="{StaticResource MaterialDesignOutlinedComboBox}">
+            <ComboBoxItem Content="gemma3:4b"/>
+            <ComboBoxItem Content="gemma3:12b"/>
+            <ComboBoxItem Content="qwen2.5:14b"/>
+        </ComboBox>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button Style="{StaticResource MaterialDesignFlatButton}"
+                    Command="{x:Static materialDesign:DialogHost.CloseDialogCommand}"
+                    CommandParameter="{x:Null}"
+                    Content="ZRUŠIT"/>
+            <Button x:Name="SaveButton"
+                    Margin="8,0,0,0"
+                    Click="SaveButton_Click"
+                    Content="ULOŽIT"/>
+        </StackPanel>
+
+    </StackPanel>
+</UserControl>

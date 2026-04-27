@@ -1,17 +1,16 @@
-using MaterialDesignThemes.Wpf.Converters;
 using NAudio.Wave;
-using OllamaSharp;
-using OllamaSharp.Models;
-using System;
-using System.Diagnostics;
+using MeetingMinutes.Dialogs;
+using MeetingMinutes.Services;
+using MeetingMinutes.Settings;
+using MeetingMinutes.ViewModels;
+using System.Collections.ObjectModel;
 using System.IO;
-using System.Net.Http;
-using System.Reflection.Metadata;
-using System.Runtime.Intrinsics.Arm;
 using System.Text;
-using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
+using System.Diagnostics;
+using System.Windows.Threading;
 
 namespace MeetingMinutes
 {
@@ -22,30 +21,42 @@ namespace MeetingMinutes
         private string tempRecordingPath = string.Empty;
         private bool _isPaused = false;
 
-        private readonly System.Diagnostics.Stopwatch _recordingStopwatch = new();
-        private readonly System.Windows.Threading.DispatcherTimer _uiTimer = new()
+        private readonly Stopwatch _recordingStopwatch = new();
+        private readonly DispatcherTimer _uiTimer = new()
         {
             Interval = TimeSpan.FromSeconds(1)
         };
 
         private string fullTranscript = string.Empty;
-        private const string OllamaModel = "qwen2.5:14b";
-        private static readonly HttpClient _httpClient = new() { BaseAddress = new Uri("http://localhost:11434"), Timeout = Timeout.InfiniteTimeSpan };
-        private readonly OllamaApiClient ollamaClient = new(_httpClient);
+        private string? _pendingWavPath;
+        private string? _pendingTempWav;
+        private readonly List<LlmMessage> _chatHistory = new();
+        public ObservableCollection<ChatMessage> ChatMessages { get; } = new();
+        private UserSettingsData _userSettings = UserSettings.Load();
+        private readonly ITranscriptionService _transcriptionService = new LocalPythonTranscriptionService();
+        private readonly ILlmService _llmService = new OllamaLlmService();
 
         public MainWindow()
         {
             InitializeComponent();
+            DataContext = this;
             _uiTimer.Tick += (_, _) =>
             {
                 var e = _recordingStopwatch.Elapsed;
                 TimerLabel.Text = $"{(int)e.TotalMinutes:D2}:{e.Seconds:D2}";
             };
         }
-        
+
         private void StartButton_Click(object sender, RoutedEventArgs e)
         {
             tempRecordingPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".wav");
+
+            if (_pendingTempWav != null && File.Exists(_pendingTempWav))
+                File.Delete(_pendingTempWav);
+            _pendingTempWav = null;
+            _pendingWavPath = null;
+            TranscribeButton.IsEnabled = false;
+
             TranscriptBox.Clear();
             TranscriptBox.AppendText("Nahrávám...\n");
             SummarizeButton.IsEnabled = false;
@@ -57,7 +68,7 @@ namespace MeetingMinutes
 
             recorder.DataAvailable += Recorder_DataAvailable;
             recorder.RecordingStopped += Recorder_RecordingStopped;
-            
+
             try
             {
                 writer = new WaveFileWriter(tempRecordingPath, recorder.WaveFormat);
@@ -82,7 +93,6 @@ namespace MeetingMinutes
 
             writer?.Write(e.Buffer, 0, e.BytesRecorded);
 
-            // Vizualizace hlasitosti
             double maxLevel = 0;
             for (int i = 0; i < e.BytesRecorded; i += 2)
             {
@@ -156,13 +166,44 @@ namespace MeetingMinutes
 
                 File.Move(temp, saveDialog.FileName, overwrite: true);
                 var savedPath = saveDialog.FileName;
+                _pendingWavPath = savedPath;
 
+                ShowPendingTranscriptionInfo($"Nahrávání dokončeno: {Path.GetFileName(savedPath)}");
                 ImportButton.IsEnabled = false;
-                TranscriptBox.Clear();
-                TranscriptBox.AppendText("Nahrávání dokončeno. Spouštím přepis a rozpoznávání mluvčích...\n");
-
-                Task.Run(async () => await RunTranscriptionAsync(savedPath));
+                TranscribeButton.IsEnabled = true;
             });
+        }
+
+        private void PromptBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter && SummarizeButton.IsEnabled)
+            {
+                e.Handled = true;
+                SummarizeButton_Click(sender, e);
+            }
+        }
+
+        private void ClearChatButton_Click(object sender, RoutedEventArgs e)
+        {
+            _chatHistory.Clear();
+            ChatMessages.Clear();
+            ClearChatButton.IsEnabled = false;
+        }
+
+        private async void SettingsButton_Click(object sender, RoutedEventArgs e) =>
+            await ShowSettingsDialogAsync(new SettingsDialogView(_userSettings));
+
+        private async void TranscriptionSettingsButton_Click(object sender, RoutedEventArgs e) =>
+            await ShowSettingsDialogAsync(new TranscriptionSettingsDialogView(_userSettings));
+
+        private async Task ShowSettingsDialogAsync(object dialog)
+        {
+            var result = await MaterialDesignThemes.Wpf.DialogHost.Show(dialog, "RootDialog");
+            if (result is UserSettingsData updated)
+            {
+                _userSettings = updated;
+                UserSettings.Save(updated);
+            }
         }
 
         private async void ImportButton_Click(object sender, RoutedEventArgs e)
@@ -177,37 +218,61 @@ namespace MeetingMinutes
 
             var filePath = dialog.FileName;
 
-            TranscriptBox.Clear();
-            TranscriptBox.AppendText("Spouštím přepis a rozpoznávání mluvčích...\n");
-            ImportButton.IsEnabled = false;
-            SummarizeButton.IsEnabled = false;
+            if (_pendingTempWav != null && File.Exists(_pendingTempWav))
+                File.Delete(_pendingTempWav);
+            _pendingTempWav = null;
+            _pendingWavPath = null;
 
-            var wavPath = filePath;
-            string? tempWav = null;
+            TranscribeButton.IsEnabled = false;
+            SummarizeButton.IsEnabled = false;
+            TranscriptBox.Clear();
+            TranscriptBox.AppendText("Konvertuji soubor...\n");
 
             try
             {
+                string wavPath = filePath;
                 await Task.Run(() =>
                 {
                     if (!filePath.EndsWith(".wav", StringComparison.OrdinalIgnoreCase))
                     {
-                        tempWav = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".wav");
-                        ConvertToWav(filePath, tempWav);
-                        wavPath = tempWav;
+                        var tmp = Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".wav");
+                        ConvertToWav(filePath, tmp);
+                        wavPath = tmp;
+                        _pendingTempWav = tmp;
                     }
                 });
 
-                await RunTranscriptionAsync(wavPath);
+                _pendingWavPath = wavPath;
+                ShowPendingTranscriptionInfo($"Importováno: {Path.GetFileName(filePath)}");
+                TranscribeButton.IsEnabled = true;
             }
             catch (Exception ex)
             {
                 TranscriptBox.AppendText($"\n[Chyba: {ex.Message}]\n");
-                ImportButton.IsEnabled = true;
+            }
+        }
+
+        private async void TranscribeButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_pendingWavPath == null) return;
+
+            var wavPath = _pendingWavPath;
+            var tempWav = _pendingTempWav;
+            _pendingWavPath = null;
+            _pendingTempWav = null;
+
+            TranscribeButton.IsEnabled = false;
+            ImportButton.IsEnabled = false;
+
+            try
+            {
+                await RunTranscriptionAsync(wavPath);
             }
             finally
             {
                 if (tempWav != null && File.Exists(tempWav))
                     File.Delete(tempWav);
+                ImportButton.IsEnabled = true;
             }
         }
 
@@ -218,90 +283,32 @@ namespace MeetingMinutes
             WaveFileWriter.CreateWaveFile(outputPath, resampler);
         }
 
-        private static (string pythonExe, string scriptPath) FindPythonAndScript()
+        private void ShowPendingTranscriptionInfo(string headerLine)
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-
-#if DEBUG
-            // looking in bin\Debug\net10.0-windows\
-            var root = Path.GetFullPath(Path.Combine(baseDir, @"..\..\..\"));
-            var python = Path.Combine(root, "python", ".venv", "Scripts", "python.exe");
-            var script = Path.Combine(root, "python", "app.py");
-
-            if (File.Exists(python) && File.Exists(script))
-                return (python, script);
-#endif
-
-            // for release/publishe looking in python\ folder must sit next to the .exe
-            var prodPython = Path.Combine(baseDir, "python", ".venv", "Scripts", "python.exe");
-            var prodScript = Path.Combine(baseDir, "python", "app.py");
-
-            if (File.Exists(prodPython) && File.Exists(prodScript))
-                return (prodPython, prodScript);
-
-            throw new Exception(
-                $"Nelze najít python.exe nebo app.py.\n" +
-                $"Hledáno v: {Path.Combine(baseDir, "python")}"
-            );
+            var model     = _userSettings.TranscriptionModel;
+            var modelInfo = model == "canary"
+                ? $"Model: {model} | Jazyk: {_userSettings.TranscriptionLanguage}"
+                : $"Model: {model}";
+            TranscriptBox.Clear();
+            TranscriptBox.AppendText($"{headerLine}\n{modelInfo}\n\nNastavení přepisu změníš kliknutím na ⚙ vlevo dole.");
         }
 
         private async Task RunTranscriptionAsync(string audioPath)
         {
-            var (pythonExe, scriptPath) = FindPythonAndScript();
-            Dispatcher.Invoke(() => TranscriptBox.AppendText($"Python: {pythonExe}\nScript: {scriptPath}\n"));
-
-            var language = Dispatcher.Invoke(() =>
-                LanguageSelector.SelectedIndex == 1 ? "en" : "cs");
-
-            var args = new StringBuilder();
-            args.Append($"\"{scriptPath}\"");
-            args.Append($" \"{audioPath}\"");
-            args.Append($" --model canary");
-            args.Append($" --language {language}");
+            var model    = _userSettings.TranscriptionModel;
+            var language = model == "canary" ? _userSettings.TranscriptionLanguage : null;
 
             try
             {
-                var psi = new ProcessStartInfo(pythonExe, args.ToString())
-                {
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    WorkingDirectory = Path.GetDirectoryName(scriptPath)!
-                };
-
-                using var process = Process.Start(psi)
-                    ?? throw new Exception("Nepodařilo se spustit Python.");
-
-                // Stream stderr live to TranscriptBox as progress updates
-                var stderrLines = new StringBuilder();
-                process.ErrorDataReceived += (_, args) =>
-                {
-                    if (args.Data == null) return;
-                    stderrLines.AppendLine(args.Data);
-                    Dispatcher.Invoke(() =>
+                var segments = await _transcriptionService.TranscribeAsync(
+                    audioPath, model, language,
+                    onProgress: line => Dispatcher.Invoke(() =>
                     {
-                        TranscriptBox.AppendText(args.Data + "\n");
+                        TranscriptBox.AppendText(line + "\n");
                         TranscriptBox.ScrollToEnd();
-                    });
-                };
-                process.BeginErrorReadLine();
+                    }));
 
-                var stdoutTask = process.StandardOutput.ReadToEndAsync();
-                await process.WaitForExitAsync();
-                var stdout = await stdoutTask;
-
-                var stderr = stderrLines.ToString();
-
-                if (process.ExitCode != 0)
-                    throw new Exception(stderr.Length > 0 ? stderr : $"Skript skončil s kódem {process.ExitCode}");
-
-                // NeMo may print non-JSON content to stdout — find our specific JSON
-                var jsonStart = stdout.IndexOf("{\"segments\"");
-                if (jsonStart < 0) jsonStart = stdout.IndexOf("{\"error\"");
-                if (jsonStart > 0) stdout = stdout[jsonStart..];
-
-                var transcript = ParseTranscriptJson(stdout);
+                var transcript = FormatTranscript(segments);
 
                 Dispatcher.Invoke(() =>
                 {
@@ -309,6 +316,9 @@ namespace MeetingMinutes
                     TranscriptBox.AppendText(transcript);
                     TranscriptBox.ScrollToEnd();
                     fullTranscript = transcript;
+                    _chatHistory.Clear();
+                    ChatMessages.Clear();
+                    ClearChatButton.IsEnabled = false;
                     SummarizeButton.IsEnabled = true;
                     ImportButton.IsEnabled = true;
                 });
@@ -323,27 +333,17 @@ namespace MeetingMinutes
             }
         }
 
-        private static string ParseTranscriptJson(string json)
+        private static string FormatTranscript(IReadOnlyList<TranscriptSegment> segments)
         {
             var sb = new StringBuilder();
-            using var doc = JsonDocument.Parse(json);
-            var segments = doc.RootElement.GetProperty("segments");
-
-            foreach (var segment in segments.EnumerateArray())
+            foreach (var s in segments)
             {
-                var start = segment.GetProperty("start").GetDouble();
-                var text = segment.GetProperty("text").GetString()?.Trim() ?? string.Empty;
-                var speaker = segment.TryGetProperty("speaker", out var sp)
-                    ? sp.GetString() ?? "???"
-                    : "???";
-
-                var ts = TimeSpan.FromSeconds(start);
-                sb.AppendLine($"[{ts:mm\\:ss}] {speaker}: {text}");
+                var ts = TimeSpan.FromSeconds(s.Start);
+                sb.AppendLine($"[{ts:mm\\:ss}] {s.Speaker}: {s.Text}");
             }
-
             return sb.ToString();
         }
-         
+
         private async void SummarizeButton_Click(object sender, RoutedEventArgs e)
         {
             if (string.IsNullOrWhiteSpace(fullTranscript))
@@ -352,75 +352,43 @@ namespace MeetingMinutes
                 return;
             }
 
-            SummarizeButton.IsEnabled = false;
-            SummaryBox.Clear();
-            SummaryBox.AppendText("Generuji shrnutí...\n\n");
-
-            var structurePrompt = string.IsNullOrWhiteSpace(PromptBox.Text)
+            var userText = string.IsNullOrWhiteSpace(PromptBox.Text)
                 ? "Vytvoř shrnutí schůzky."
                 : PromptBox.Text;
 
-            const string systemPrompt =
-            @"Jsi asistent pro shrnutí přepisů schůzek.
+            SummarizeButton.IsEnabled = false;
+            PromptBox.Clear();
 
-                VÝSTUP MUSÍ MÍT TUTO STRUKTURU:
+            if (_chatHistory.Count == 0)
+            {
+                _chatHistory.Add(new LlmMessage(LlmRole.System, $"{_userSettings.SystemPrompt}\n\nTranskript:\n{fullTranscript}"));
+            }
+            _chatHistory.Add(new LlmMessage(LlmRole.User, userText));
 
-                1) Témata:
-                - ...
+            ChatMessages.Add(new ChatMessage(isUser: true, content: userText));
+            ClearChatButton.IsEnabled = true;
 
-                2) Účastníci:
-                - ...
+            var assistantMessage = new ChatMessage(isUser: false);
+            ChatMessages.Add(assistantMessage);
+            ChatScrollViewer.ScrollToEnd();
 
-                3) Konkrétní návrhy / opatření:
-                - ...
-
-                4) Rozhodnutí:
-                - ...
-
-                5) Úkoly:
-                - ...
-
-                PRAVIDLA:
-                - odpovídej pouze česky
-                - používej pouze informace z přepisu
-                - nic si nevymýšlej
-                - pokud informace chybí napiš ""není uvedeno""
-                - pokud v přepisu nejsou rozhodnutí nebo úkoly, napiš to výslovně
-                - používej pouze jména, která jsou v přepisu
-                - NEUVÁDĚJ žádné obecné hodnocení (např. ""celkový dojem"")
-                - NEVYTVÁŘEJ nové osoby ani role
-                - NEZOBECŇUJ – používej formulace odpovídající textu (např. „uvádí“, „říká“, „navrhuje“)
-                - pokud si nejsi jistý, napiš ""není uvedeno""
-                - neuváděj informace, které nelze přímo dohledat v textu
-                - buď stručný a věcný";
-
-            var userMessage = $"{structurePrompt}\n\nTranskript:\n{fullTranscript}";
-             
             try
             {
-                ollamaClient.SelectedModel = OllamaModel;
-
-                var request = new GenerateRequest
-                {
-                    Model = OllamaModel,
-                    Prompt = userMessage, 
-                    System = systemPrompt,
-                    Stream = true,
-                    Options = new RequestOptions { Temperature = 0.3f },
-                };
-
-                await foreach (var stream in ollamaClient.GenerateAsync(request))
-                {
-                    if (!string.IsNullOrEmpty(stream?.Response))
+                var fullResponse = await _llmService.CompleteAsync(
+                    _chatHistory,
+                    _userSettings.OllamaModel,
+                    onChunk: chunk =>
                     {
-                        SummaryBox.AppendText(stream.Response);
-                        SummaryBox.ScrollToEnd();
-                    }
-                }
+                        assistantMessage.Content += chunk;
+                        ChatScrollViewer.ScrollToEnd();
+                    });
+
+                _chatHistory.Add(new LlmMessage(LlmRole.Assistant, fullResponse));
             }
             catch (Exception ex)
             {
-                SummaryBox.AppendText($"\n[Chyba: {ex.Message}]");
+                assistantMessage.Content = $"[Chyba: {ex.Message}]";
+                _chatHistory.RemoveAt(_chatHistory.Count - 1);
             }
             finally
             {

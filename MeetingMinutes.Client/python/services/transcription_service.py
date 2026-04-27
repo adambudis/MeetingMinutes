@@ -15,34 +15,50 @@ from services.diarization_service import DiarizationService
 SAMPLE_RATE = 16000
 MIN_DUR = 0.3
 
+_model_cache: dict[str, nemo_asr.models.ASRModel] = {}
+
 
 def _models_root() -> Path:
     return Path(__file__).parent.parent / "Models"
 
 
-_LOCAL_NEMO = _models_root() / "canary-1b-v2.nemo"
+_LOCAL_NEMO    = _models_root() / "canary-1b-v2.nemo"
+_PARAKEET_NEMO = _models_root() / "parakeet-tdt-0.6b-v3.nemo"
 
 
-def _load_canary_model():
-    device = get_device()
-    with contextlib.redirect_stdout(sys.stderr):
-        if not _LOCAL_NEMO.exists():
-            raise FileNotFoundError(f"Canary model nenalezen: {_LOCAL_NEMO}")
-        progress(f"Načítám Canary model z lokálního souboru ({_LOCAL_NEMO.name})...")
-        model = nemo_asr.models.ASRModel.restore_from(str(_LOCAL_NEMO))
+def _load_nemo_model(name: str, path: Path) -> nemo_asr.models.ASRModel:
+    if name not in _model_cache:
+        if not path.exists():
+            raise FileNotFoundError(f"{name} model nenalezen: {path}")
+        device = get_device()
+        progress(f"Načítám {name} model z lokálního souboru ({path.name})...")
+        with contextlib.redirect_stdout(sys.stderr):
+            model = nemo_asr.models.ASRModel.restore_from(str(path))
         if device == "cuda":
             model = model.cuda()
-
         model.eval()
-    return model
+        _model_cache[name] = model
+    return _model_cache[name]
 
 
-def _canary(audio_path: str, diarizer: DiarizationService, language: str = "cs", **_) -> list[dict]:
+def _load_canary_model() -> nemo_asr.models.ASRModel:
+    return _load_nemo_model("Canary", _LOCAL_NEMO)
+
+
+def _load_parakeet_model() -> nemo_asr.models.ASRModel:
+    return _load_nemo_model("Parakeet", _PARAKEET_NEMO)
+
+
+def _transcribe_segments(
+    audio_path: str,
+    diarizer: DiarizationService,
+    model: nemo_asr.models.ASRModel,
+    model_name: str,
+    transcribe_kwargs: dict,
+) -> list[dict]:
     turns = diarizer.get_speaker_turns(audio_path)
     if not turns:
         return []
-
-    model = _load_canary_model()
 
     y_full, sr_native = sf.read(audio_path, dtype="float32", always_2d=False)
     if y_full.ndim > 1:
@@ -62,9 +78,9 @@ def _canary(audio_path: str, diarizer: DiarizationService, language: str = "cs",
             tmp.close()
             temp_files.append(tmp.name)
 
-        progress(f"Přepisuji {len(valid_turns)} segmentů s Canary...")
+        progress(f"Přepisuji {len(valid_turns)} segmentů s {model_name}...")
         with contextlib.redirect_stdout(sys.stderr):
-            transcriptions = model.transcribe(temp_files, source_lang=language, target_lang=language)
+            transcriptions = model.transcribe(temp_files, **transcribe_kwargs)
     finally:
         for f in temp_files:
             try:
@@ -82,8 +98,27 @@ def _canary(audio_path: str, diarizer: DiarizationService, language: str = "cs",
     return result
 
 
+def _canary(audio_path: str, diarizer: DiarizationService, language: str = "cs", **_) -> list[dict]:
+    return _transcribe_segments(
+        audio_path, diarizer,
+        model=_load_canary_model(),
+        model_name="Canary",
+        transcribe_kwargs={"source_lang": language, "target_lang": language},
+    )
+
+
+def _parakeet(audio_path: str, diarizer: DiarizationService, **_) -> list[dict]:
+    return _transcribe_segments(
+        audio_path, diarizer,
+        model=_load_parakeet_model(),
+        model_name="Parakeet",
+        transcribe_kwargs={},
+    )
+
+
 _BACKENDS: dict[str, callable] = {
-    "canary": _canary,
+    "canary":   _canary,
+    "parakeet": _parakeet,
 }
 
 
