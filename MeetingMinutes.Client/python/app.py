@@ -25,8 +25,8 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("audio_path")
-    parser.add_argument("--model",    default="canary", choices=["canary", "parakeet"])
-    parser.add_argument("--language", default="cs",     choices=["cs", "en"])
+    parser.add_argument("--model", default="canary", choices=["canary", "parakeet"])
+    parser.add_argument("--language", default="cs", choices=["cs", "en"])
     args = parser.parse_args()
 
     try:

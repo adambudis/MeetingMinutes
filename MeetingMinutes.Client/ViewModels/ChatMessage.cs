@@ -11,7 +11,11 @@ public class ChatMessage : INotifyPropertyChanged
     public string Content
     {
         get => _content;
-        set { _content = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Content))); }
+        set 
+        { 
+            _content = value; 
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Content))); 
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

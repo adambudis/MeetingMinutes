@@ -3,6 +3,7 @@ using MeetingMinutes.Dialogs;
 using MeetingMinutes.Services;
 using MeetingMinutes.Settings;
 using MeetingMinutes.ViewModels;
+using OllamaSharp.Models.Chat;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Text;
@@ -30,7 +31,7 @@ namespace MeetingMinutes
         private string fullTranscript = string.Empty;
         private string? _pendingWavPath;
         private string? _pendingTempWav;
-        private readonly List<LlmMessage> _chatHistory = new();
+        private LlmMessage? _systemMessage;
         public ObservableCollection<ChatMessage> ChatMessages { get; } = new();
         private UserSettingsData _userSettings = UserSettings.Load();
         private readonly ITranscriptionService _transcriptionService = new LocalPythonTranscriptionService();
@@ -185,7 +186,6 @@ namespace MeetingMinutes
 
         private void ClearChatButton_Click(object sender, RoutedEventArgs e)
         {
-            _chatHistory.Clear();
             ChatMessages.Clear();
             ClearChatButton.IsEnabled = false;
         }
@@ -285,7 +285,7 @@ namespace MeetingMinutes
 
         private void ShowPendingTranscriptionInfo(string headerLine)
         {
-            var model     = _userSettings.TranscriptionModel;
+            var model = _userSettings.TranscriptionModel;
             var modelInfo = model == "canary"
                 ? $"Model: {model} | Jazyk: {_userSettings.TranscriptionLanguage}"
                 : $"Model: {model}";
@@ -295,7 +295,7 @@ namespace MeetingMinutes
 
         private async Task RunTranscriptionAsync(string audioPath)
         {
-            var model    = _userSettings.TranscriptionModel;
+            var model = _userSettings.TranscriptionModel;
             var language = model == "canary" ? _userSettings.TranscriptionLanguage : null;
 
             try
@@ -316,7 +316,7 @@ namespace MeetingMinutes
                     TranscriptBox.AppendText(transcript);
                     TranscriptBox.ScrollToEnd();
                     fullTranscript = transcript;
-                    _chatHistory.Clear();
+                    _systemMessage = null;
                     ChatMessages.Clear();
                     ClearChatButton.IsEnabled = false;
                     SummarizeButton.IsEnabled = true;
@@ -359,14 +359,14 @@ namespace MeetingMinutes
             SummarizeButton.IsEnabled = false;
             PromptBox.Clear();
 
-            if (_chatHistory.Count == 0)
-            {
-                _chatHistory.Add(new LlmMessage(LlmRole.System, $"{_userSettings.SystemPrompt}\n\nTranskript:\n{fullTranscript}"));
-            }
-            _chatHistory.Add(new LlmMessage(LlmRole.User, userText));
+            _systemMessage ??= new LlmMessage(ChatRole.System, $"{_userSettings.SystemPrompt}\n\nTranskript:\n{fullTranscript}");
 
             ChatMessages.Add(new ChatMessage(isUser: true, content: userText));
             ClearChatButton.IsEnabled = true;
+
+            var messages = new List<LlmMessage> { _systemMessage };
+            messages.AddRange(ChatMessages.Select(m => new LlmMessage(
+                m.IsUser ? ChatRole.User : ChatRole.Assistant, m.Content)));
 
             var assistantMessage = new ChatMessage(isUser: false);
             ChatMessages.Add(assistantMessage);
@@ -374,21 +374,18 @@ namespace MeetingMinutes
 
             try
             {
-                var fullResponse = await _llmService.CompleteAsync(
-                    _chatHistory,
+                await _llmService.CompleteAsync(
+                    messages,
                     _userSettings.OllamaModel,
                     onChunk: chunk =>
                     {
                         assistantMessage.Content += chunk;
                         ChatScrollViewer.ScrollToEnd();
                     });
-
-                _chatHistory.Add(new LlmMessage(LlmRole.Assistant, fullResponse));
             }
             catch (Exception ex)
             {
                 assistantMessage.Content = $"[Chyba: {ex.Message}]";
-                _chatHistory.RemoveAt(_chatHistory.Count - 1);
             }
             finally
             {

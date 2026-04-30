@@ -1,8 +1,8 @@
+using OllamaSharp.Models.Chat;
+
 namespace MeetingMinutes.Services;
 
-public enum LlmRole { System, User, Assistant }
-
-public record LlmMessage(LlmRole Role, string Content);
+public record LlmMessage(ChatRole Role, string Content);
 
 public interface ILlmService
 {

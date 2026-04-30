@@ -24,9 +24,9 @@ public class OllamaLlmService : ILlmService
         var request = new ChatRequest
         {
             Model = model,
-            Messages = messages.Select(m => new Message(MapRole(m.Role), m.Content)).ToList(),
+            Messages = messages.Select(m => new Message(m.Role, m.Content)).ToList(),
             Stream = true,
-            Options = new RequestOptions { Temperature = 0.3f },
+            Options = new RequestOptions { Temperature = 0.3f, NumCtx = 65536 },
         };
 
         var sb = new StringBuilder();
@@ -41,11 +41,4 @@ public class OllamaLlmService : ILlmService
         }
         return sb.ToString();
     }
-
-    private static ChatRole MapRole(LlmRole role) => role switch
-    {
-        LlmRole.System => ChatRole.System,
-        LlmRole.Assistant => ChatRole.Assistant,
-        _                 => ChatRole.User,
-    };
 }

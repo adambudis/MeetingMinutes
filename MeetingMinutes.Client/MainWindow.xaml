@@ -60,11 +60,11 @@
             <TextBox x:Name="TranscriptBox"
                      Grid.Row="1" Grid.Column="0"
                      Margin="0,8,0,8"
-                     IsReadOnly="True"
                      TextWrapping="Wrap"
                      VerticalScrollBarVisibility="Auto"
                      AcceptsReturn="True"
-                     VerticalContentAlignment="Top"/>
+                     VerticalContentAlignment="Top"
+                     TextChanged="TranscriptBox_TextChanged"/>
 
             <!-- LEFT: Buttons -->
             <Grid Grid.Row="2" Grid.Column="0">

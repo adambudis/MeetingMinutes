@@ -22,7 +22,7 @@ def _models_root() -> Path:
     return Path(__file__).parent.parent / "Models"
 
 
-_LOCAL_NEMO    = _models_root() / "canary-1b-v2.nemo"
+_LOCAL_NEMO = _models_root() / "canary-1b-v2.nemo"
 _PARAKEET_NEMO = _models_root() / "parakeet-tdt-0.6b-v3.nemo"
 
 
