@@ -28,17 +28,18 @@ namespace MeetingMinutes
             Interval = TimeSpan.FromSeconds(1)
         };
 
-        private string fullTranscript = string.Empty;
         private string? _pendingWavPath;
         private string? _pendingTempWav;
         private LlmMessage? _systemMessage;
         public ObservableCollection<ChatMessage> ChatMessages { get; } = new();
         private UserSettingsData _userSettings = UserSettings.Load();
-        private readonly ITranscriptionService _transcriptionService = new LocalPythonTranscriptionService();
-        private readonly ILlmService _llmService = new OllamaLlmService();
+        private readonly ITranscriptionService _transcriptionService;
+        private readonly ISummarizationService _summarizationService;
 
         public MainWindow()
         {
+            _transcriptionService = ServiceFactory.CreateTranscriptionService();
+            _summarizationService = ServiceFactory.CreateSummarizationService();
             InitializeComponent();
             DataContext = this;
             _uiTimer.Tick += (_, _) =>
@@ -184,6 +185,12 @@ namespace MeetingMinutes
             }
         }
 
+        private void TranscriptBox_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            _systemMessage = null;
+            SummarizeButton.IsEnabled = !string.IsNullOrWhiteSpace(TranscriptBox.Text);
+        }
+
         private void ClearChatButton_Click(object sender, RoutedEventArgs e)
         {
             ChatMessages.Clear();
@@ -315,8 +322,6 @@ namespace MeetingMinutes
                     TranscriptBox.Clear();
                     TranscriptBox.AppendText(transcript);
                     TranscriptBox.ScrollToEnd();
-                    fullTranscript = transcript;
-                    _systemMessage = null;
                     ChatMessages.Clear();
                     ClearChatButton.IsEnabled = false;
                     SummarizeButton.IsEnabled = true;
@@ -346,7 +351,7 @@ namespace MeetingMinutes
 
         private async void SummarizeButton_Click(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(fullTranscript))
+            if (string.IsNullOrWhiteSpace(TranscriptBox.Text))
             {
                 MessageBox.Show("Není k dispozici žádný přepis.");
                 return;
@@ -358,39 +363,55 @@ namespace MeetingMinutes
 
             SummarizeButton.IsEnabled = false;
             PromptBox.Clear();
+            _systemMessage ??= new LlmMessage(ChatRole.System, _userSettings.SystemPrompt);
 
-            _systemMessage ??= new LlmMessage(ChatRole.System, $"{_userSettings.SystemPrompt}\n\nTranskript:\n{fullTranscript}");
-
+            bool isFirst = ChatMessages.Count == 0;
             ChatMessages.Add(new ChatMessage(isUser: true, content: userText));
             ClearChatButton.IsEnabled = true;
 
-            var messages = new List<LlmMessage> { _systemMessage };
-            messages.AddRange(ChatMessages.Select(m => new LlmMessage(
-                m.IsUser ? ChatRole.User : ChatRole.Assistant, m.Content)));
-
-            var assistantMessage = new ChatMessage(isUser: false);
-            ChatMessages.Add(assistantMessage);
+            var reply = new ChatMessage(isUser: false);
+            ChatMessages.Add(reply);
             ChatScrollViewer.ScrollToEnd();
 
             try
             {
-                await _llmService.CompleteAsync(
-                    messages,
-                    _userSettings.OllamaModel,
-                    onChunk: chunk =>
-                    {
-                        assistantMessage.Content += chunk;
-                        ChatScrollViewer.ScrollToEnd();
-                    });
+                if (isFirst)
+                {
+                    await _summarizationService.SummarizeAsync(
+                        new SummarizationRequest(TranscriptBox.Text, _userSettings.SystemPrompt, _userSettings.OllamaModel),
+                        onChunkStarted: (current, total) => Dispatcher.Invoke(() =>
+                            reply.Content = $"[{current}/{total}] "),
+                        onToken: token => Dispatcher.Invoke(() =>
+                        {
+                            reply.Content += token;
+                            ChatScrollViewer.ScrollToEnd();
+                        }));
+                }
+                else
+                {
+                    var messages = new List<LlmMessage> { _systemMessage };
+                    messages.AddRange(ChatMessages.Select(m => new LlmMessage(
+                        m.IsUser ? ChatRole.User : ChatRole.Assistant, m.Content)));
+
+                    await _summarizationService.ContinueAsync(
+                        messages,
+                        _userSettings.OllamaModel,
+                        onToken: chunk =>
+                        {
+                            reply.Content += chunk;
+                            ChatScrollViewer.ScrollToEnd();
+                        });
+                }
             }
             catch (Exception ex)
             {
-                assistantMessage.Content = $"[Chyba: {ex.Message}]";
+                reply.Content = $"[Chyba: {ex.Message}]";
             }
             finally
             {
                 SummarizeButton.IsEnabled = true;
             }
         }
+
     }
 }
